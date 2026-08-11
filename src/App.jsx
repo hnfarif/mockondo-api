@@ -1,24 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 const starter = {
   id: crypto.randomUUID(), name: 'Daftar produk', method: 'GET', path: '/api/products', status: 200,
   delay: 350, contentType: 'application/json', headers: [{ key: 'Cache-Control', value: 'no-store' }],
   body: JSON.stringify({ data: [{ id: 1, name: 'Mechanical Keyboard', price: 850000 }], meta: { total: 1 } }, null, 2),
 }
-const safeLoad = () => { try { return JSON.parse(localStorage.getItem('mockondo:endpoints')) || [starter] } catch { return [starter] } }
 const tone = (status) => status >= 500 ? 'text-red-300 bg-red-400/10 border-red-400/25' : status >= 400 ? 'text-amber-300 bg-amber-400/10 border-amber-400/25' : 'text-lime bg-lime/10 border-lime/25'
 
 export default function App() {
-  const [mocks, setMocks] = useState(safeLoad)
+  const [mocks, setMocks] = useState([starter])
   const [selectedId, setSelectedId] = useState(mocks[0]?.id)
   const [notice, setNotice] = useState('')
   const [result, setResult] = useState(null)
   const [publishing, setPublishing] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [adminToken, setAdminToken] = useState('')
   const selected = useMemo(() => mocks.find((mock) => mock.id === selectedId) || mocks[0], [mocks, selectedId])
   const slug = (selected?.slug || selected?.path || selected?.name || 'mock').replace(/^\/+/, '').replace(/[^a-z0-9-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'mock'
   const publicUrl = `${window.location.origin}/m/${slug}`
 
-  useEffect(() => localStorage.setItem('mockondo:endpoints', JSON.stringify(mocks)), [mocks])
   const update = (patch) => setMocks((items) => items.map((item) => item.id === selected.id ? { ...item, ...patch } : item))
   const flash = (message) => { setNotice(message); window.setTimeout(() => setNotice(''), 2600) }
   const addMock = () => {
@@ -44,17 +44,32 @@ export default function App() {
   }
   const exportMock = () => { navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); flash('Konfigurasi mock disalin ke clipboard.') }
   const publish = async () => {
-    let token = localStorage.getItem('mockondo:admin-token')
-    if (!token) { token = window.prompt('Masukkan MOCKONDO_ADMIN_TOKEN'); if (!token) return; localStorage.setItem('mockondo:admin-token', token) }
+    let token = adminToken
+    if (!token) { token = window.prompt('Masukkan MOCKONDO_ADMIN_TOKEN'); if (!token) return; setAdminToken(token) }
     let body
     try { body = JSON.parse(selected.body) } catch { return flash('Response body harus berupa JSON valid.') }
     setPublishing(true)
     try {
       const response = await fetch('/api/admin/mocks', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, method: selected.method, status: selected.status, delay: selected.delay, headers: Object.fromEntries(selected.headers.filter((h) => h.key).map((h) => [h.key, h.value])), body }) })
       if (!response.ok) throw new Error()
+      update({ slug })
       flash('Mock berhasil dipublikasikan.')
     } catch { flash('Publish gagal. Pastikan API sudah dideploy dan token benar.') }
     finally { setPublishing(false) }
+  }
+  const syncFromApi = async () => {
+    let token = adminToken
+    if (!token) { token = window.prompt('Masukkan MOCKONDO_ADMIN_TOKEN'); if (!token) return; setAdminToken(token) }
+    setSyncing(true)
+    try {
+      const response = await fetch('/api/admin/mocks', { headers: { Authorization: `Bearer ${token}` } })
+      if (!response.ok) throw new Error()
+      const remote = await response.json()
+      const items = Object.entries(remote).map(([remoteSlug, mock]) => ({ ...starter, ...mock, id: mock.id || crypto.randomUUID(), slug: remoteSlug, name: mock.name || remoteSlug, path: mock.path || `/${remoteSlug}`, body: JSON.stringify(mock.body ?? {}, null, 2), headers: Object.entries(mock.headers || {}).map(([key, value]) => ({ key, value })) }))
+      if (!items.length) return flash('Belum ada mock di Redis.')
+      setMocks(items); setSelectedId(items[0].id); setResult(null); flash(`${items.length} mock berhasil disinkronkan dari Redis.`)
+    } catch { flash('Sync gagal. Pastikan token dan deployment API benar.') }
+    finally { setSyncing(false) }
   }
   if (!selected) return null
 
@@ -62,6 +77,7 @@ export default function App() {
     <header className="border-b border-line/90 bg-ink/85 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
         <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-lime text-lg font-black text-ink">M</span><div><h1 className="font-display text-xl font-black tracking-tight">mockondo</h1><p className="text-xs text-muted">response simulator</p></div></div>
+        <div className="flex items-center gap-3"><button onClick={syncFromApi} disabled={syncing} className="rounded-lg border border-line px-3 py-2 text-sm hover:border-muted disabled:opacity-50">{syncing ? 'Syncing…' : 'Sync dari Redis'}</button><div className="hidden text-sm text-muted sm:block">Simpan lokal. Deploy statis. Tanpa database.</div></div>
         <div className="hidden text-sm text-muted sm:block">Simpan lokal. Deploy statis. Tanpa database.</div>
       </div>
     </header>
@@ -79,7 +95,7 @@ export default function App() {
           <div className="mt-5 flex flex-wrap items-center gap-3"><button onClick={simulate} className="rounded-xl bg-lime px-5 py-3 font-bold text-ink shadow-[0_0_28px_rgba(198,251,80,.18)] hover:bg-[#d5ff77]">Jalankan simulasi →</button><button onClick={publish} disabled={publishing} className="rounded-xl border border-lime/40 px-5 py-3 font-bold text-lime hover:bg-lime/10 disabled:opacity-50">{publishing ? 'Mempublikasikan…' : 'Publish ke API'}</button>{notice && <span className="text-sm text-lime">{notice}</span>}</div>
           <div className="mt-4 rounded-xl border border-line bg-[#0e1420] px-3 py-2.5"><p className="text-[10px] font-bold uppercase tracking-widest text-muted">Public endpoint</p><div className="mt-1 flex items-center gap-2"><code className="min-w-0 flex-1 truncate text-sm text-slate-200">{publicUrl}</code><button onClick={() => { navigator.clipboard.writeText(publicUrl); flash('URL endpoint disalin.') }} className="shrink-0 text-xs font-bold text-lime hover:underline">Salin URL</button></div></div>
         </div>
-        <p className="rounded-xl border border-line bg-[#101723] px-4 py-3 text-xs leading-5 text-muted">Mockondo berjalan sepenuhnya di browser dan menyimpan data di <code className="text-slate-300">localStorage</code>. Pada hosting statis, aplikasi ini tidak dapat membuat URL API publik; gunakan hasil simulasi untuk integrasi UI, atau tambahkan serverless function bila endpoint publik diperlukan.</p>
+        <p className="rounded-xl border border-line bg-[#101723] px-4 py-3 text-xs leading-5 text-muted">Redis adalah sumber data utama Mockondo. Gunakan <b className="text-slate-300">Publish ke API</b> untuk menyimpan perubahan dan <b className="text-slate-300">Sync dari Redis</b> untuk memuat data server. Draft yang belum dipublish hanya berada di memori halaman.</p>
       </section>
       <aside className="h-fit rounded-2xl border border-line bg-panel/85 p-5 lg:sticky lg:top-5"><p className="text-xs font-bold uppercase tracking-[.18em] text-lime">Response preview</p><h2 className="mt-1 text-lg font-bold">Hasil simulasi</h2><div className="mt-5 min-h-80 rounded-xl border border-line bg-[#0a0f18] p-4">{!result && <p className="mt-24 text-center text-sm text-muted">Tekan “Jalankan simulasi” untuk melihat respons.</p>}{result?.loading && <p className="mt-24 text-center text-sm text-lime">Menunggu {selected.delay}ms…</p>}{result?.error && <p className="text-sm leading-6 text-red-300">{result.error}</p>}{result?.body && <><div className="mb-4 flex items-center justify-between"><span className={`rounded border px-2 py-1 text-xs font-bold ${tone(result.status)}`}>{result.status}</span><span className="text-xs text-muted">{result.elapsed}ms</span></div><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">Headers</p><div className="mb-4 space-y-1 text-xs text-slate-300"><p><span className="text-muted">Content-Type:</span> {selected.contentType}</p>{result.headers.map((h, i) => <p key={i}><span className="text-muted">{h.key}:</span> {h.value}</p>)}</div><p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted">Body</p><pre className="overflow-auto text-xs leading-5 text-[#d9e2f3]">{JSON.stringify(result.body, null, 2)}</pre></>}</div></aside>
     </div>
