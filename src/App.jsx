@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const starter = {
   id: crypto.randomUUID(), name: 'Daftar produk', method: 'GET', path: '/api/products', status: 200,
@@ -14,7 +14,7 @@ export default function App() {
   const [result, setResult] = useState(null)
   const [publishing, setPublishing] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [adminToken, setAdminToken] = useState('')
+  const autoSynced = useRef(false)
   const selected = useMemo(() => mocks.find((mock) => mock.id === selectedId) || mocks[0], [mocks, selectedId])
   const slug = (selected?.slug || selected?.path || selected?.name || 'mock').replace(/^\/+/, '').replace(/[^a-z0-9-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'mock'
   const publicUrl = `${window.location.origin}/m/${slug}`
@@ -43,34 +43,45 @@ export default function App() {
     catch { setResult({ error: 'Response body bukan JSON valid. Perbaiki sebelum menjalankan simulasi.' }) }
   }
   const exportMock = () => { navigator.clipboard.writeText(JSON.stringify(selected, null, 2)); flash('Konfigurasi mock disalin ke clipboard.') }
+  const adminFetch = async (url, options = {}) => {
+    const request = () => fetch(url, { ...options, credentials: 'include', headers: { ...(options.headers || {}) } })
+    let response = await request()
+    if (response.status !== 401) return response
+    const token = window.prompt('Masukkan token admin Mockondo untuk melanjutkan:')
+    if (!token) return response
+    const login = await fetch('/api/auth/login', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })
+    if (!login.ok) throw new Error('invalid-token')
+    return request()
+  }
   const publish = async () => {
-    let token = adminToken
-    if (!token) { token = window.prompt('Masukkan MOCKONDO_ADMIN_TOKEN'); if (!token) return; setAdminToken(token) }
     let body
     try { body = JSON.parse(selected.body) } catch { return flash('Response body harus berupa JSON valid.') }
     setPublishing(true)
     try {
-      const response = await fetch('/api/admin/mocks', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, method: selected.method, status: selected.status, delay: selected.delay, headers: Object.fromEntries(selected.headers.filter((h) => h.key).map((h) => [h.key, h.value])), body }) })
+      const response = await adminFetch('/api/admin/mocks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, method: selected.method, status: selected.status, delay: selected.delay, headers: Object.fromEntries(selected.headers.filter((h) => h.key).map((h) => [h.key, h.value])), body }) })
       if (!response.ok) throw new Error()
       update({ slug })
       flash('Mock berhasil dipublikasikan.')
-    } catch { flash('Publish gagal. Pastikan API sudah dideploy dan token benar.') }
+    } catch (error) { flash(error.message === 'invalid-token' ? 'Token admin tidak valid. Silakan coba lagi.' : 'Belum berhasil menyimpan perubahan. Periksa koneksi lalu coba lagi.') }
     finally { setPublishing(false) }
   }
   const syncFromApi = async () => {
-    let token = adminToken
-    if (!token) { token = window.prompt('Masukkan MOCKONDO_ADMIN_TOKEN'); if (!token) return; setAdminToken(token) }
     setSyncing(true)
     try {
-      const response = await fetch('/api/admin/mocks', { headers: { Authorization: `Bearer ${token}` } })
+      const response = await adminFetch('/api/admin/mocks')
       if (!response.ok) throw new Error()
       const remote = await response.json()
       const items = Object.entries(remote).map(([remoteSlug, mock]) => ({ ...starter, ...mock, id: mock.id || crypto.randomUUID(), slug: remoteSlug, name: mock.name || remoteSlug, path: mock.path || `/${remoteSlug}`, body: JSON.stringify(mock.body ?? {}, null, 2), headers: Object.entries(mock.headers || {}).map(([key, value]) => ({ key, value })) }))
       if (!items.length) return flash('Belum ada mock di Redis.')
       setMocks(items); setSelectedId(items[0].id); setResult(null); flash(`${items.length} mock berhasil disinkronkan dari Redis.`)
-    } catch { flash('Sync gagal. Pastikan token dan deployment API benar.') }
+    } catch { flash('Belum berhasil memuat data. Periksa koneksi lalu coba lagi.') }
     finally { setSyncing(false) }
   }
+  useEffect(() => {
+    if (autoSynced.current) return
+    autoSynced.current = true
+    syncFromApi()
+  }, [])
   if (!selected) return null
 
   return <main className="min-h-screen grid-bg">

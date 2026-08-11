@@ -1,9 +1,9 @@
 import { cors, isAuthorized, listMocks, saveMock } from '../_lib/store.js'
 
 export default async function handler(req, res) {
-  cors(res)
+  cors(req, res)
   if (req.method === 'OPTIONS') return res.status(204).end()
-  if (!isAuthorized(req)) return res.status(401).json({ error: 'Authorization required' })
+  if (!(await isAuthorized(req))) return res.status(401).json({ error: 'Authorization required' })
   if (req.method === 'GET') return res.status(200).json(await listMocks())
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   const { slug, ...mock } = req.body || {}

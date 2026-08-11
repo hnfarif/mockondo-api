@@ -1,7 +1,7 @@
 import { cors, getMock } from '../_lib/store.js'
 
 export default async function handler(req, res) {
-  cors(res)
+  cors(req, res)
   if (req.method === 'OPTIONS') return res.status(204).end()
   const mock = await getMock(req.query.slug)
   if (!mock) return res.status(404).json({ error: 'Mock endpoint tidak ditemukan' })

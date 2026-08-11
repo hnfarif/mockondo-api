@@ -2,9 +2,9 @@ import { cors, deleteMock, isAuthorized, saveMock } from '../../_lib/store.js'
 import { getMock } from '../../_lib/store.js'
 
 export default async function handler(req, res) {
-  cors(res)
+  cors(req, res)
   if (req.method === 'OPTIONS') return res.status(204).end()
-  if (!isAuthorized(req)) return res.status(401).json({ error: 'Authorization required' })
+  if (!(await isAuthorized(req))) return res.status(401).json({ error: 'Authorization required' })
   const { slug } = req.query
   if (req.method === 'GET') {
     const mock = await getMock(slug)

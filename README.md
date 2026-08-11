@@ -36,6 +36,8 @@ MOCKONDO_ADMIN_TOKEN=...  # token untuk endpoint admin
 MOCKONDO_CORS_ORIGIN=*    # sebaiknya diisi origin aplikasi pemanggil
 ```
 
+Dashboard melakukan login ke `/api/auth/login`. Token admin hanya dikirim saat login; server menyimpan session ID di Redis dan mengirimkannya sebagai cookie `HttpOnly`, sehingga token tidak disimpan di browser.
+
 Contoh membuat mock:
 
 ```bash
