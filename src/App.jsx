@@ -25,10 +25,16 @@ export default function App() {
     const item = { ...starter, id: crypto.randomUUID(), name: 'Mock baru', path: `/api/endpoint-${mocks.length + 1}`, headers: [{ key: '', value: '' }] }
     setMocks((items) => [...items, item]); setSelectedId(item.id); setResult(null)
   }
-  const remove = () => {
+  const remove = async () => {
     if (mocks.length === 1) return flash('Minimal satu mock harus tersedia.')
-    const remaining = mocks.filter((item) => item.id !== selected.id)
-    setMocks(remaining); setSelectedId(remaining[0].id); setResult(null)
+    try {
+      if (selected.slug) {
+        const response = await adminFetch(`/api/admin/mocks/${encodeURIComponent(selected.slug)}`, { method: 'DELETE' })
+        if (!response.ok && response.status !== 404) throw new Error()
+      }
+      const remaining = mocks.filter((item) => item.id !== selected.id)
+      setMocks(remaining); setSelectedId(remaining[0].id); setResult(null); flash('Mock berhasil dihapus.')
+    } catch { flash('Mock belum terhapus. Periksa koneksi lalu coba lagi.') }
   }
   const importFile = async (event) => {
     const file = event.target.files?.[0]; if (!file) return
@@ -88,13 +94,12 @@ export default function App() {
     <header className="border-b border-line/90 bg-ink/85 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
         <div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-lime text-lg font-black text-ink">M</span><div><h1 className="font-display text-xl font-black tracking-tight">mockondo</h1><p className="text-xs text-muted">response simulator</p></div></div>
-        <div className="flex items-center gap-3"><button onClick={syncFromApi} disabled={syncing} className="rounded-lg border border-line px-3 py-2 text-sm hover:border-muted disabled:opacity-50">{syncing ? 'Syncing…' : 'Sync dari Redis'}</button><div className="hidden text-sm text-muted sm:block">Simpan lokal. Deploy statis. Tanpa database.</div></div>
-        <div className="hidden text-sm text-muted sm:block">Simpan lokal. Deploy statis. Tanpa database.</div>
+        <div className="hidden text-sm text-muted sm:block">Redis sebagai sumber data utama.</div>
       </div>
     </header>
     <div className="mx-auto grid max-w-7xl gap-5 p-5 lg:grid-cols-[260px_minmax(0,1fr)_360px]">
       <aside className="rounded-2xl border border-line bg-panel/85 p-3">
-        <div className="mb-3 flex items-center justify-between px-2 pt-1"><span className="text-xs font-bold uppercase tracking-widest text-muted">Endpoints</span><button onClick={addMock} className="rounded-lg bg-lime px-2.5 py-1 text-sm font-bold text-ink">+ Baru</button></div>
+        <div className="mb-3 flex items-center justify-between px-2 pt-1"><span className="text-xs font-bold uppercase tracking-widest text-muted">Endpoints</span><div className="flex items-center gap-1.5"><button onClick={syncFromApi} disabled={syncing} title="Muat ulang dari Redis" aria-label="Muat ulang dari Redis" className="grid h-8 w-8 place-items-center rounded-lg border border-line text-lg text-muted hover:border-lime hover:text-lime disabled:opacity-50">↻</button><button onClick={addMock} className="rounded-lg bg-lime px-2.5 py-1 text-sm font-bold text-ink">+ Baru</button></div></div>
         <div className="space-y-1">{mocks.map((mock) => <button key={mock.id} onClick={() => { setSelectedId(mock.id); setResult(null) }} className={`w-full rounded-xl p-3 text-left transition ${mock.id === selected.id ? 'bg-white/9 ring-1 ring-lime/50' : 'hover:bg-white/5'}`}><div className="flex items-center justify-between gap-2"><span className="truncate font-semibold">{mock.name}</span><span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold ${tone(mock.status)}`}>{mock.status}</span></div><p className="mt-1 truncate text-xs text-muted"><b className="mr-1 text-lime">{mock.method}</b>{mock.path}</p></button>)}</div>
       </aside>
       <section className="space-y-5">
